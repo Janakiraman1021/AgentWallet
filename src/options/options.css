@@ -85,6 +85,8 @@ body {
 
 h1 { font-size: 20px; margin: 0 0 18px; }
 h2 { font-size: 15px; margin: 0 0 12px; }
+.dashboard-link { color: var(--fg-dim); margin: -8px 0 18px; font-size: 13px; }
+.dashboard-link a { color: var(--accent); }
 
 .card {
   background: var(--card);

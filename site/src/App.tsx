@@ -6,6 +6,7 @@ import { Home } from "@/pages/home";
 import { AgentsPage } from "@/pages/agents";
 import { PublishPage } from "@/pages/publish";
 import { DeveloperPage } from "@/pages/developer";
+import { TransactionsPage } from "@/pages/transactions";
 
 /**
  * The shell: chrome that is on every route, and the routes themselves.
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/developer" element={<DeveloperPage />} />
+          <Route path="/transactions" element={<TransactionsPage />} />
           <Route path="/publish" element={<PublishPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
