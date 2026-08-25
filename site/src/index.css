@@ -1,0 +1,175 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * The palette.
+ *
+ * Two grounds and one ink. Cream (#F6E4CF) carries the calm sections, ink
+ * (#321C04) carries the dark ones, and the footage sections put white type
+ * over video behind a 20% black scrim — that scrim is the only reason the
+ * heading is readable over a bright frame, so it is not decoration.
+ *
+ * Values are bare HSL channels with no hsl() wrapper so Tailwind can
+ * alpha-modify any token inline (`bg-ink/20`, `border-sand/40`) instead of
+ * needing a second variable per opacity.
+ *
+ * Per-agent hues are NOT here: they are keyed by agent id in
+ * src/data/agent-theme.ts, so adding an agent cannot forget to add its colour.
+ */
+@layer base {
+  :root {
+    --cream: 32 68% 89%;
+    --ink: 31 85% 11%;
+    --ink-strong: 28 82% 7%;
+    --paper: 32 100% 97%;
+    --sand: 33 38% 76%;
+    --sand-strong: 35 33% 71%;
+
+    /* Health of a listed agent. The one place a colour carries meaning rather
+       than identity, so they are read as a set — and each is always paired
+       with a word, because colour alone would leave the state unreadable to
+       anyone who cannot separate red from green. */
+    --status-live: 140 45% 34%;
+    --status-wait: 38 72% 44%;
+    --status-down: 8 62% 46%;
+
+    --radius: 0.75rem;
+  }
+
+  /* The dark sections are ink, not black, and the OS draws select lists and
+     the caret from this property alone — no rule on `option` reaches them. */
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-ink text-paper antialiased;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    /* `clip` rather than `hidden`: the hero video is wider than the viewport
+       on narrow screens, and `overflow-x: hidden` on <body> silently kills
+       `position: sticky` for the feature column further down the page. */
+    overflow-x: clip;
+  }
+
+  ::selection {
+    background: hsl(var(--ink));
+    color: hsl(var(--cream));
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--ink-strong));
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--sand) / 0.3);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--sand) / 0.55);
+  }
+}
+
+/**
+ * The italic accent.
+ *
+ * Instrument Serif ships italic as a real cut, so the element must NOT also
+ * be slanted by the browser — `<em>` gets `not-italic` in the markup and the
+ * slant comes from the font file. Set as a class rather than repeated inline
+ * because it appears in six headings and one of them would drift.
+ */
+.accent-serif {
+  font-family: "Instrument Serif", ui-serif, Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/**
+ * A card that carries an agent's colour.
+ *
+ * The tint arrives as --tint (bare HSL channels) from an inline style — see
+ * tintVars() in src/data/agent-theme.ts — which is what lets one rule serve
+ * every agent instead of one class per colour.
+ *
+ * ::after is painted after the card's in-flow content, so without the z-index
+ * pair below the wash would sit on top of the copy and mute it. Giving the
+ * children a stacking position of their own is cheaper than wrapping every
+ * card in an extra element.
+ */
+.tint-card {
+  position: relative;
+  overflow: hidden;
+  transition:
+    box-shadow 0.4s ease,
+    transform 0.4s ease,
+    border-color 0.4s ease;
+}
+
+.tint-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    120% 80% at 0% 0%,
+    hsl(var(--tint) / 0.14),
+    transparent 62%
+  );
+  opacity: 0.65;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.tint-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.tint-card:hover::after {
+  opacity: 1;
+}
+
+.tint-card:hover {
+  transform: translateY(-4px);
+  border-color: hsl(var(--tint) / 0.45);
+  box-shadow: 0 26px 60px -34px hsl(var(--tint) / 0.85);
+}
+
+/** The soft bloom behind a glyph, sized by whatever element it is placed in. */
+.tint-bloom {
+  background: radial-gradient(circle, hsl(var(--tint) / 0.3), transparent 68%);
+  filter: blur(14px);
+}
+
+/**
+ * Grading for supplied footage — a grade, not a conversion.
+ *
+ * This was `grayscale(1)` while the design was monochrome. The design is warm
+ * now, and a desaturated video on a page with colour in it reads as a broken
+ * asset rather than as a decision. What is left is the mild contrast and
+ * saturation lift that keeps footage from looking washed out under a scrim.
+ */
+.cinematic-media {
+  filter: contrast(1.06) saturate(1.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

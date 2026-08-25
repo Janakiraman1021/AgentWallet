@@ -1,0 +1,307 @@
+/**
+ * The fee history, printed under a finished answer.
+ *
+ * What a person actually asks looking at this is one question in three parts:
+ * *which tool got paid, how much, and can I check it?* So every row carries the
+ * tool's own label, the amount in ALGO, the address it went to, and a link to a
+ * public explorer that has nothing to do with us. The last of those is the
+ * point — a receipt you can only verify by trusting the thing that issued it is
+ * not a receipt.
+ *
+ * Built with the DOM and never with innerHTML. A tool label comes from a
+ * developer's registration and an address comes off the wire; both are content
+ * we do not control, and this is the one surface in the panel where getting
+ * that wrong would put attacker-controlled markup next to a wallet address.
+ *
+ * It renders only when there is something to render. A chat where nothing was
+ * charged shows nothing at all — an empty "fees: none" block under every answer
+ * is noise, and it trains people to stop reading the place the real numbers
+ * appear.
+ */
+
+import { receiptsFor, totalsOf, toAlgo, declineFor, payeesOf } from '../payments/ledger.js';
+import { ellipseAddress, NETWORKS } from './wallet.js';
+
+/**
+ * Where to look this address up, on somebody else's site.
+ *
+ * The per-leg "view" link opens one TRANSACTION; this opens the ACCOUNT, which
+ * is what answers "has this address actually received what the block says".
+ * Both matter and they are different pages — a receipt you can only check
+ * against the thing that issued it is not a receipt.
+ */
+const accountUrl = (network, address) => {
+  const base = NETWORKS[network || 'testnet']?.explorerUrl;
+  return base && address ? `${base}${address}` : '';
+};
+
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+};
+
+/**
+ * One payment leg: what it was for, where it went, and its transaction.
+ *
+ * Every leg is drawn separately rather than as a total with a percentage beside
+ * it. A percentage is a claim about a calculation; a list of amounts that
+ * visibly adds up to the total IS the calculation, and this is the block whose
+ * whole job is being checkable.
+ */
+function legRow(label, { address, microAlgo, txid, explorer, network }) {
+  const item = el('li', 'receipt-leg');
+  item.append(el('span', 'receipt-leg-label', label));
+
+  /**
+   * The address links to the ACCOUNT, the "view" at the end links to the
+   * TRANSACTION. Two different questions — "who is this" and "did this
+   * specific payment land" — and before this only the second was answerable
+   * without copying 58 characters out by hand.
+   */
+  const href = accountUrl(network, address);
+  const to = el(href ? 'a' : 'span', 'receipt-address', ellipseAddress(address, 6, 4));
+  to.title = address;
+  if (href) {
+    to.href = href;
+    to.target = '_blank';
+    to.rel = 'noreferrer';
+  }
+  item.append(to);
+
+  item.append(el('span', 'receipt-leg-amount', `${toAlgo(microAlgo)} ALGO`));
+
+  if (explorer) {
+    const link = el('a', 'receipt-txid', 'view');
+    link.href = explorer;
+    link.target = '_blank';
+    link.rel = 'noreferrer';
+    // The full transaction id, for anyone who wants to paste it elsewhere.
+    link.title = txid || '';
+    item.append(link);
+  }
+
+  return item;
+}
+
+function receiptRow(receipt) {
+  const row = el('li', 'receipt');
+
+  const head = el('div', 'receipt-head');
+  head.append(el('span', 'receipt-tool', receipt.toolLabel || receipt.agentId));
+  head.append(el('span', 'receipt-total', `${toAlgo(receipt.total?.microAlgo)} ALGO`));
+  row.append(head);
+
+  /**
+   * Who paid. Shown on a run receipt and not on a skill one, because a run
+   * settles a batch minutes after the wallet was last visible and "which
+   * account did that leave from" stops being obvious.
+   */
+  if (receipt.from) {
+    const from = el('div', 'receipt-from');
+    from.append(el('span', 'receipt-leg-label', 'From'));
+    const address = el('span', 'receipt-address', ellipseAddress(receipt.from, 6, 4));
+    address.title = receipt.from;
+    from.append(address);
+    row.append(from);
+  }
+
+  const legs = el('ul', 'receipt-legs');
+
+  if (receipt.lines?.length) {
+    /**
+     * A run: one line per action, each with its own transaction.
+     *
+     * This is the whole reason a run pays with a leg per action rather than one
+     * lump sum — every line here is independently checkable, and the step index
+     * ties it back to the step in the timeline the user watched happen.
+     *
+     * The marketplace's cut is drawn LAST rather than in the order the chain
+     * happened to put it, and labelled as a cut rather than as a step. It is
+     * the one line that is not work anybody did, so listing it among the
+     * actions is what made a one-step run read as two.
+     */
+    const actions = receipt.lines.filter((l) => l.agentId);
+    const fees = receipt.lines.filter((l) => !l.agentId);
+
+    for (const line of [...actions, ...fees]) {
+      const label = line.step == null ? line.label : `${line.step}. ${line.label}`;
+      legs.append(
+        legRow(label, {
+          address: line.to,
+          microAlgo: line.microAlgo,
+          txid: line.txid,
+          explorer: line.explorer,
+          network: receipt.network
+        })
+      );
+    }
+  } else {
+    // A skill purchase: two legs, the developer and the marketplace.
+    if (receipt.developer) legs.append(legRow('Developer', receipt.developer));
+    if (receipt.company) {
+      legs.append(
+        legRow(`Marketplace ${(receipt.company.bps / 100).toFixed(0)}%`, receipt.company)
+      );
+    }
+  }
+
+  row.append(legs);
+
+  // The network fee is the protocol's, not either party's, so it is stated
+  // apart from the split rather than folded into a total that would then not
+  // match the two lines above it.
+  if (receipt.networkFee?.microAlgo) {
+    row.append(
+      el('div', 'receipt-fee', `network fee ${toAlgo(receipt.networkFee.microAlgo)} ALGO`)
+    );
+  }
+
+  return row;
+}
+
+/**
+ * Build the block for one conversation, or null when nothing was charged.
+ *
+ * Returning null rather than an empty node is what lets the caller decide
+ * placement without having to know whether there is anything to place.
+ */
+export async function buildReceiptBlock(sessionId) {
+  const receipts = await receiptsFor(sessionId);
+  const decline = declineFor(sessionId);
+
+  /**
+   * Nothing charged and nothing to say: draw nothing. Still the rule.
+   *
+   * What is NOT that case is a charge that was attempted and could not be
+   * made — a wallet that is not connected, one on the wrong chain, a
+   * declined signature, a marketplace that is down. Those are facts about
+   * this conversation and every one of them is something the user can fix,
+   * where "fees: none" is a fact about nothing. Measured before this: a run
+   * whose price list had failed to load finished with no receipt, no error
+   * and no explanation, which from the screen is indistinguishable from
+   * billing never having been built.
+   */
+  if (!receipts.length && !decline) return null;
+
+  const totals = totalsOf(receipts);
+
+  const block = el('section', 'receipts');
+  block.setAttribute('aria-label', 'Fees paid in this conversation');
+
+  const header = el('div', 'receipts-head');
+  header.append(
+    el(
+      'span',
+      'receipts-title',
+      receipts.length
+        ? `Fees · ${totals.actions} ${totals.actions === 1 ? 'action' : 'actions'}`
+        : 'Fees'
+    )
+  );
+  header.append(el('span', 'receipts-total', `${toAlgo(totals.spentMicroAlgo)} ALGO`));
+  block.append(header);
+
+  const list = el('ul', 'receipt-list');
+  for (const receipt of receipts) list.append(receiptRow(receipt));
+  block.append(list);
+
+  /**
+   * The last thing that should have been charged and was not.
+   *
+   * Text through `textContent` like every other value here: the reason can
+   * carry a wallet error message, which is a string from an injected object
+   * on a page we do not control.
+   */
+  if (decline) {
+    const note = el('div', 'receipts-declined');
+    note.append(el('span', 'receipts-declined-mark', 'Not charged'));
+    note.append(el('span', 'receipts-declined-why', decline.reason));
+    block.append(note);
+  }
+
+  /**
+   * Who ended up with the money, in total, with a link to check each one.
+   *
+   * The rows above answer "what did THIS action cost". This answers "how much
+   * has that address received", which is the question anyone reconciling
+   * against an explorer is actually asking — an explorer shows an account, not
+   * our list of steps, and twenty legs to two addresses meant adding twenty
+   * numbers up by hand to check one.
+   */
+  const payees = payeesOf(receipts);
+  if (payees.length) {
+    const paid = el('div', 'receipts-payees');
+    paid.append(el('div', 'receipts-payees-title', 'Total paid to'));
+
+    const list = el('ul', 'receipts-payee-list');
+    for (const payee of payees) {
+      const row = el('li', 'receipts-payee');
+      row.append(
+        el(
+          'span',
+          'receipts-payee-role',
+          payee.role === 'marketplace' ? 'Marketplace' : 'Developer'
+        )
+      );
+
+      const href = accountUrl(payee.network, payee.address);
+      const address = el(href ? 'a' : 'span', 'receipt-address', ellipseAddress(payee.address, 6, 4));
+      address.title = payee.address;
+      if (href) {
+        address.href = href;
+        address.target = '_blank';
+        address.rel = 'noreferrer';
+      }
+      row.append(address);
+
+      row.append(
+        el(
+          'span',
+          'receipts-payee-calls',
+          `${payee.calls} ${payee.calls === 1 ? 'payment' : 'payments'}`
+        )
+      );
+      row.append(el('span', 'receipts-payee-amount', `${toAlgo(payee.microAlgo)} ALGO`));
+      list.append(row);
+    }
+
+    paid.append(list);
+    block.append(paid);
+  }
+
+  // A split of three zeroes under a block that paid nothing is arithmetic
+  // about nothing, and it reads as a payment of 0 rather than as no payment.
+  if (receipts.length) {
+    const footer = el('div', 'receipts-foot');
+    footer.append(
+      el(
+        'span',
+        'receipts-split',
+        `${toAlgo(totals.developerMicroAlgo)} to developers · ` +
+          `${toAlgo(totals.companyMicroAlgo)} to the marketplace · ` +
+          `${toAlgo(totals.networkFeeMicroAlgo)} network`
+      )
+    );
+    block.append(footer);
+  }
+
+  return block;
+}
+
+/**
+ * Put the block at the end of the thread, replacing any earlier copy.
+ *
+ * Replacing rather than appending matters because the thread re-renders on
+ * every streamed delta and on every provider switch: appending would stack a
+ * new copy of the fee history under the last one several times a second.
+ */
+export async function renderReceipts(container, sessionId) {
+  if (!container) return;
+
+  container.querySelector(':scope > .receipts')?.remove();
+
+  const block = await buildReceiptBlock(sessionId);
+  if (block) container.append(block);
+}

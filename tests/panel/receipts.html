@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fee receipts — self-checking fixture</title>
+    <link rel="stylesheet" href="/src/sidepanel/styles/tokens.css" />
+    <link rel="stylesheet" href="/src/sidepanel/styles/base.css" />
+    <link rel="stylesheet" href="/src/sidepanel/styles/receipts.css" />
+    <style>
+      body { padding: 16px; max-width: 420px; margin: 0 auto; }
+      #report { position: fixed; top: 8px; right: 8px; font: 12px/1.5 monospace;
+                background: #111; color: #eee; padding: 10px 12px; border-radius: 8px;
+                max-width: 340px; max-height: 90vh; overflow: auto; z-index: 99; }
+      .p { color: #6f6; } .f { color: #f66; }
+    </style>
+  </head>
+  <body>
+    <!--
+      The fee history is the one surface in the panel that renders text nobody
+      here controls — a tool label comes from a developer's registration, an
+      address comes off the wire — next to a wallet address. So this fixture
+      checks two different things and the second matters more than the first:
+
+        1. the block renders, the amounts are right, and the total agrees with
+           the rows above it;
+        2. a hostile tool label lands as TEXT and not as markup.
+
+      A fake DOM cannot answer the second, because the bug it guards against is
+      the browser's own parser doing what it is told.
+
+      Serve the repo over http and open this page. The box in the corner
+      reports pass/fail.
+    -->
+    <div id="report">running…</div>
+    <div id="thread"></div>
+
+    <script type="module">
+      const report = document.getElementById('report');
+      const lines = [];
+      let pass = 0;
+      let fail = 0;
+      const ok = (name, cond, extra = '') => {
+        if (cond) { pass++; lines.push(`<div class="p">ok   ${name}</div>`); }
+        else { fail++; lines.push(`<div class="f">FAIL ${name}${extra ? ' — ' + extra : ''}</div>`); }
+        report.innerHTML = lines.join('') + `<hr>${pass}/${pass + fail} passed`;
+      };
+
+      // The ledger reads chrome.storage.local; this is the whole of what it needs.
+      const store = {};
+      globalThis.chrome = {
+        storage: {
+          local: {
+            get: async (k) => (typeof k === 'string' ? { [k]: store[k] } : { ...store }),
+            set: async (o) => Object.assign(store, o)
+          }
+        }
+      };
+
+      const SESSION = 's-fixture';
+
+      // A label a developer could really register, chosen to be hostile.
+      const NASTY = '<img src=x onerror="window.__pwned=1">Summarise';
+
+      store['x402_receipts_v1'] = {
+        [SESSION]: [
+          {
+            receiptId: 1,
+            agentId: 'p-summary',
+            toolLabel: NASTY,
+            network: 'testnet',
+            confirmedRound: 12345,
+            total: { microAlgo: 1_000_000, algo: '1.000000' },
+            developer: {
+              address: 'ZBWK3Y3NNNQNXQTIXHN5NSW23N74N2CKIBIDR2CPDUENFQQFSRZJOGCZQQ',
+              microAlgo: 800_000, algo: '0.800000', txid: 'DEV1',
+              explorer: 'https://lora.algokit.io/testnet/transaction/DEV1'
+            },
+            company: {
+              address: 'SICA3J2Z7BGVYIR6XWVPDV7VTZKLY2GR4A7RZWIAQAN7CTN4S4SQRDCSLU',
+              microAlgo: 200_000, algo: '0.200000', bps: 2000, txid: 'CO1',
+              explorer: 'https://lora.algokit.io/testnet/transaction/CO1'
+            },
+            networkFee: { microAlgo: 2_000, algo: '0.002000' }
+          },
+          {
+            receiptId: 2,
+            agentId: 'p-table',
+            toolLabel: 'Extract as a table',
+            network: 'testnet',
+            confirmedRound: 12350,
+            // An odd price: 20% of 33,333 is 6,666.6, and the odd microALGO has
+            // to land on the developer or the two rows will not add to the total.
+            total: { microAlgo: 33_333, algo: '0.033333' },
+            developer: {
+              address: 'ZBWK3Y3NNNQNXQTIXHN5NSW23N74N2CKIBIDR2CPDUENFQQFSRZJOGCZQQ',
+              microAlgo: 26_667, algo: '0.026667', txid: 'DEV2',
+              explorer: 'https://lora.algokit.io/testnet/transaction/DEV2'
+            },
+            company: {
+              address: 'SICA3J2Z7BGVYIR6XWVPDV7VTZKLY2GR4A7RZWIAQAN7CTN4S4SQRDCSLU',
+              microAlgo: 6_666, algo: '0.006666', bps: 2000, txid: 'CO2',
+              explorer: 'https://lora.algokit.io/testnet/transaction/CO2'
+            },
+            networkFee: { microAlgo: 2_000, algo: '0.002000' }
+          }
+        ]
+      };
+
+      // A whole agent run: one signature, but a leg — and a txid — per action.
+      store['x402_receipts_v1'][SESSION].push({
+        receiptId: 3,
+        kind: 'run',
+        toolLabel: '4 agent actions',
+        from: '3BRI65KXINMWQ2OFHMNFC5HQFX5XMC65KNFS2LKX3UM6Y5UYPISOVRYVMM',
+        network: 'testnet',
+        confirmedRound: 66588100,
+        total: { microAlgo: 4_000, algo: '0.004000' },
+        developerTotal: { microAlgo: 3_200, algo: '0.003200' },
+        companyTotal: { microAlgo: 800, algo: '0.000800' },
+        networkFee: { microAlgo: 5_000, algo: '0.005000' },
+        lines: [
+          { agentId: 'act-navigate', label: 'Opened a starting page', step: 0,
+            to: 'ZYQRMSLGHOFS6ZKCOXND4VFHCT5ZNMMGMFBMF7QBU4ITADHYAVWDF333YM',
+            microAlgo: 800, algo: '0.000800', txid: 'A1',
+            explorer: 'https://lora.algokit.io/testnet/transaction/A1' },
+          { agentId: 'act-navigate', label: 'Go to https://mail.google.com/', step: 1,
+            to: 'ZYQRMSLGHOFS6ZKCOXND4VFHCT5ZNMMGMFBMF7QBU4ITADHYAVWDF333YM',
+            microAlgo: 800, algo: '0.000800', txid: 'A2',
+            explorer: 'https://lora.algokit.io/testnet/transaction/A2' },
+          { agentId: 'act-observe', label: 'Read the inbox', step: 1,
+            to: 'ZYQRMSLGHOFS6ZKCOXND4VFHCT5ZNMMGMFBMF7QBU4ITADHYAVWDF333YM',
+            microAlgo: 800, algo: '0.000800', txid: 'A3',
+            explorer: 'https://lora.algokit.io/testnet/transaction/A3' },
+          { agentId: 'act-click', label: 'Click [12] "Primary"', step: 2,
+            to: 'ZYQRMSLGHOFS6ZKCOXND4VFHCT5ZNMMGMFBMF7QBU4ITADHYAVWDF333YM',
+            microAlgo: 800, algo: '0.000800', txid: 'A4',
+            explorer: 'https://lora.algokit.io/testnet/transaction/A4' },
+          { agentId: null, label: 'Marketplace 20%', step: null,
+            to: '2RYXGHHZSCM4LDY7GAPVAOGGFRPJBY3TVHECI3O5ULT3VLSJYQJRSR4BVU',
+            microAlgo: 800, algo: '0.000800', txid: 'C1',
+            explorer: 'https://lora.algokit.io/testnet/transaction/C1' }
+        ]
+      });
+
+      const { renderReceipts } = await import('/src/sidepanel/ui/receipts.js');
+      const { totalsOf, receiptsFor, toAlgo } = await import('/src/sidepanel/payments/ledger.js');
+
+      const thread = document.getElementById('thread');
+      await renderReceipts(thread, SESSION);
+
+      const block = thread.querySelector('.receipts');
+      ok('the block renders', Boolean(block));
+
+      const rows = thread.querySelectorAll('.receipt');
+      ok('one row per payment', rows.length === 3, String(rows.length));
+
+      // The run receipt: a leg per action, each with its own transaction.
+      const runRow = rows[2];
+      ok('the run row lists a leg per action + marketplace',
+         runRow.querySelectorAll('.receipt-leg').length === 5,
+         String(runRow.querySelectorAll('.receipt-leg').length));
+      // Scoped to .receipt-legs: the "From" row reuses .receipt-leg-label, and
+      // an unscoped query finds it first.
+      ok('each action leg is numbered by its step',
+         runRow.querySelector('.receipt-legs .receipt-leg-label')?.textContent === '0. Opened a starting page',
+         runRow.querySelector('.receipt-legs .receipt-leg-label')?.textContent);
+      ok('the FROM address is shown on a run',
+         runRow.querySelector('.receipt-from .receipt-address')?.title ===
+         '3BRI65KXINMWQ2OFHMNFC5HQFX5XMC65KNFS2LKX3UM6Y5UYPISOVRYVMM');
+      ok('every action leg links to its own transaction',
+         runRow.querySelectorAll('.receipt-txid').length === 5);
+      ok('the action legs add up to the run total',
+         [...runRow.querySelectorAll('.receipt-leg-amount')]
+           .reduce((n,e)=>n+Math.round(parseFloat(e.textContent)*1e6),0) === 4000);
+
+      // The reason this fixture exists at all.
+      ok('a hostile tool label did NOT execute', !globalThis.__pwned);
+      ok('no injected element reached the DOM', !thread.querySelector('img'));
+      ok(
+        'and it is shown as literal text',
+        thread.querySelector('.receipt-tool')?.textContent === NASTY
+      );
+
+      const legs = rows[1].querySelectorAll('.receipt-leg-amount');
+      ok('the odd split renders 0.026667 to the developer', legs[0]?.textContent.includes('0.026667'));
+      ok('and 0.006666 to the marketplace', legs[1]?.textContent.includes('0.006666'));
+
+      // The assertion the whole block lives or dies on.
+      const stored = await receiptsFor(SESSION);
+      const totals = totalsOf(stored);
+      ok(
+        'the two shares add back to the two totals',
+        totals.developerMicroAlgo + totals.companyMicroAlgo === totals.totalMicroAlgo,
+        `${totals.developerMicroAlgo} + ${totals.companyMicroAlgo} != ${totals.totalMicroAlgo}`
+      );
+      ok(
+        'the header total is price plus network fees',
+        thread.querySelector('.receipts-total')?.textContent.includes(toAlgo(totals.spentMicroAlgo)),
+        thread.querySelector('.receipts-total')?.textContent
+      );
+
+      // 2 skill receipts x 2 legs, plus the run's 4 actions + 1 marketplace leg.
+      ok('every leg links to a public explorer',
+         thread.querySelectorAll('.receipt-txid').length === 9,
+         String(thread.querySelectorAll('.receipt-txid').length));
+      ok(
+        'the full address is available on hover',
+        thread.querySelector('.receipt-address')?.title.length === 58
+      );
+
+      // renderThread runs on every provider switch and every streamed delta.
+      await renderReceipts(thread, SESSION);
+      await renderReceipts(thread, SESSION);
+      ok('repainting does not stack copies', thread.querySelectorAll('.receipts').length === 1);
+
+      // A chat where nothing was charged must show nothing at all.
+      await renderReceipts(thread, 's-empty');
+      ok('an unpaid conversation renders no block', !thread.querySelector('.receipts'));
+
+      /* ---------------------------------------------------------------
+       * A charge that was attempted and could not be made.
+       *
+       * Different from "nothing was charged", which stays silent above.
+       * This one is a fact the user can act on — and before it existed a run
+       * whose price list had failed to load finished with no receipt, no
+       * error and nothing on screen to distinguish it from billing never
+       * having been built.
+       * ------------------------------------------------------------- */
+      const { recordDecline, recordReceipt } = await import('/src/sidepanel/payments/ledger.js');
+
+      // A reason can carry a wallet error string, which comes off an injected
+      // object on a page we do not control.
+      const NASTY_REASON = '<img src=y onerror="window.__pwned2=1">wallet is on MainNet';
+
+      recordDecline('s-declined', NASTY_REASON);
+      await renderReceipts(thread, 's-declined');
+
+      const declinedBlock = thread.querySelector('.receipts');
+      ok('a declined charge renders a block of its own', Boolean(declinedBlock));
+      ok('with no payment rows in it', declinedBlock?.querySelectorAll('.receipt').length === 0);
+      ok(
+        'and no split footer, which would be arithmetic about nothing',
+        !declinedBlock?.querySelector('.receipts-foot')
+      );
+      ok(
+        'the header does not claim any actions',
+        declinedBlock?.querySelector('.receipts-title')?.textContent === 'Fees',
+        declinedBlock?.querySelector('.receipts-title')?.textContent
+      );
+      ok(
+        'the reason is shown',
+        declinedBlock?.querySelector('.receipts-declined-why')?.textContent === NASTY_REASON
+      );
+      ok('a hostile reason did NOT execute', !globalThis.__pwned2);
+      ok('and injected no element', !declinedBlock?.querySelector('img'));
+
+      // A payment that lands must clear the reason it did not: a receipt and
+      // "not charged" side by side is the block contradicting itself.
+      await recordReceipt('s-declined', {
+        receiptId: 99, agentId: 'act-answer', toolLabel: 'Answer from chatgpt',
+        network: 'testnet',
+        total: { microAlgo: 1_000, algo: '0.001000' },
+        developer: { address: 'ZBWK3Y3NNNQNXQTIXHN5NSW23N74N2CKIBIDR2CPDUENFQQFSRZJOGCZQQ',
+                     microAlgo: 800, algo: '0.000800', txid: 'AN1',
+                     explorer: 'https://lora.algokit.io/testnet/transaction/AN1' },
+        company: { address: '2RYXGHHZSCM4LDY7GAPVAOGGFRPJBY3TVHECI3O5ULT3VLSJYQJRSR4BVU',
+                   microAlgo: 200, algo: '0.000200', bps: 2000, txid: 'AN2',
+                   explorer: 'https://lora.algokit.io/testnet/transaction/AN2' },
+        networkFee: { microAlgo: 1_000, algo: '0.001000' }
+      });
+      await renderReceipts(thread, 's-declined');
+
+      const settledBlock = thread.querySelector('.receipts');
+      ok('a landed payment renders its row', settledBlock?.querySelectorAll('.receipt').length === 1);
+      ok(
+        'and clears the earlier decline',
+        !settledBlock?.querySelector('.receipts-declined'),
+        'a receipt and "not charged" together is the block contradicting itself'
+      );
+      ok(
+        'an answer is billed like anything else',
+        settledBlock?.querySelector('.receipt-tool')?.textContent === 'Answer from chatgpt'
+      );
+
+      report.innerHTML = lines.join('') + `<hr>${pass}/${pass + fail} passed`;
+      globalThis.__result = { pass, fail };
+    </script>
+  </body>
+</html>
